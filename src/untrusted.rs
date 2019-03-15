@@ -107,8 +107,10 @@
 ///
 /// No methods of `Input` will ever panic.
 #[derive(Clone, Copy, Debug, Eq)]
-pub struct Input<'a> {
-    value: no_panic::Slice<'a>,
+pub struct Input<'a>(&'a [u8]);
+
+impl Input<'static> {
+    fn empty() -> Self { Self(&[]) }
 }
 
 impl<'a> Input<'a> {
@@ -120,18 +122,20 @@ impl<'a> Input<'a> {
         // maximum object size is `core::isize::MAX`, and in practice it is
         // impossible to create an object of size `core::usize::MAX` or larger.
         debug_assert!(bytes.len() < core::usize::MAX);
-        Self {
-            value: no_panic::Slice::new(bytes),
-        }
+        Self(bytes)
     }
+
+    /// Returns the first byte of the input, or `None` if it is empty.
+    #[inline]
+    pub fn first(&self) -> Option<&u8> { self.0.first() }
 
     /// Returns `true` if the input is empty and false otherwise.
     #[inline]
-    pub fn is_empty(&self) -> bool { self.value.is_empty() }
+    pub fn is_empty(&self) -> bool { self.0.is_empty() }
 
     /// Returns the length of the `Input`.
     #[inline]
-    pub fn len(&self) -> usize { self.value.len() }
+    pub fn len(&self) -> usize { self.0.len() }
 
     /// Calls `read` with the given input as a `Reader`, ensuring that `read`
     /// consumed the entire input. If `read` does not consume the entire input,
@@ -149,10 +153,28 @@ impl<'a> Input<'a> {
         }
     }
 
+    /// Returns the first byte and the rest of the bytes of the input, or
+    /// `None` if it is empty.
+    #[inline]
+    pub fn split_first(&self) -> Option<(u8, Self)> {
+        self.0.split_first().map(|(h, t)| (*h, Self(t)))
+    }
+
+    /// Splits the input into two parts at position `i`, or returns `None` if
+    /// `i` is out of bounds.
+    #[inline]
+    pub fn split_at(&self, i: usize) -> Option<(Self, Self)> {
+        if self.0.len() < i {
+            return None;
+        }
+        let (before, after) = self.0.split_at(i);
+        Some((Self(before), Self(after)))
+    }
+
     /// Access the input as a slice so it can be processed by functions that
     /// are not written using the Input/Reader framework.
     #[inline]
-    pub fn as_slice_less_safe(&self) -> &'a [u8] { self.value.as_slice_less_safe() }
+    pub fn as_slice_less_safe(&self) -> &'a [u8] { self.0 }
 }
 
 // #[derive(PartialEq)] would result in lifetime bounds that are
@@ -160,9 +182,7 @@ impl<'a> Input<'a> {
 // https://github.com/rust-lang/rust/issues/27950.
 impl PartialEq<Input<'_>> for Input<'_> {
     #[inline]
-    fn eq(&self, other: &Input) -> bool {
-        self.as_slice_less_safe() == other.as_slice_less_safe()
-    }
+    fn eq(&self, other: &Input) -> bool { self.as_slice_less_safe() == other.as_slice_less_safe() }
 }
 
 // https://github.com/rust-lang/rust/issues/27950
@@ -202,13 +222,13 @@ where
 /// byte of the input is accidentally left unprocessed. The methods of `Reader`
 /// never panic, so `Reader` also assists the writing of panic-free code.
 #[derive(Debug)]
-pub struct Reader<'a>(no_panic::Slice<'a>);
+pub struct Reader<'a>(Input<'a>);
 
 impl<'a> Reader<'a> {
     /// Construct a new Reader for the given input. Use `read_all` or
     /// `read_all_optional` instead of `Reader::new` whenever possible.
     #[inline]
-    pub fn new(input: Input<'a>) -> Self { Self(input.value) }
+    pub fn new(input: Input<'a>) -> Self { Self(input) }
 
     /// Returns `true` if the reader is at the end of the input, and `false`
     /// otherwise.
@@ -218,7 +238,7 @@ impl<'a> Reader<'a> {
     /// Returns `true` if there is at least one more byte in the input and that
     /// byte is equal to `b`, and false otherwise.
     #[inline]
-    pub fn peek(&self, b: u8) -> bool { self.0.first() == Some(b) }
+    pub fn peek(&self, b: u8) -> bool { self.0.first().map(|b| *b) == Some(b) }
 
     /// Reads the next input byte.
     ///
@@ -240,16 +260,14 @@ impl<'a> Reader<'a> {
     pub fn read_bytes(&mut self, num_bytes: usize) -> Result<Input<'a>, EndOfInput> {
         let (before, after) = self.0.split_at(num_bytes).ok_or(EndOfInput)?;
         self.0 = after;
-        Ok(Input { value: before })
+        Ok(before)
     }
 
     /// Skips the reader to the end of the input, returning the skipped input
     /// as an `Input`.
     #[inline]
     pub fn read_bytes_to_end(&mut self) -> Input<'a> {
-        Input {
-            value: core::mem::replace(&mut self.0, no_panic::Slice::new(&[])),
-        }
+        core::mem::replace(&mut self.0, Input::empty())
     }
 
     /// Calls `read()` with the given input as a `Reader`. On success, returns a
@@ -263,7 +281,6 @@ impl<'a> Reader<'a> {
         let r = read(self)?;
         let amount_read = original.len().checked_sub(self.0.len()).unwrap();
         let (bytes_read, _) = original.split_at(amount_read).unwrap();
-        let bytes_read = Input { value: bytes_read };
         Ok((bytes_read, r))
     }
 
@@ -285,43 +302,3 @@ impl<'a> Reader<'a> {
 /// operation could be completed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EndOfInput;
-
-mod no_panic {
-    /// A wrapper around a slice that exposes no functions that can panic.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub struct Slice<'a> {
-        bytes: &'a [u8],
-    }
-
-    impl<'a> Slice<'a> {
-        #[inline]
-        pub fn new(bytes: &'a [u8]) -> Self { Self { bytes } }
-
-        #[inline]
-        pub fn first(&self) -> Option<u8> { self.bytes.first().map(|b| *b) }
-
-        #[inline]
-        pub fn split_first(&self) -> Option<(u8, Self)> {
-            self.bytes.split_first().map(|(h, t)| (*h, Self::new(t)))
-        }
-
-        #[inline]
-        pub fn split_at(&self, i: usize) -> Option<(Self, Self)> {
-            if self.bytes.len() < i {
-                return None;
-            }
-            let (before, after) = self.bytes.split_at(i);
-            Some((Self::new(before), Self::new(after)))
-        }
-
-        #[inline]
-        pub fn is_empty(&self) -> bool { self.bytes.is_empty() }
-
-        #[inline]
-        pub fn len(&self) -> usize { self.bytes.len() }
-
-        #[inline]
-        pub fn as_slice_less_safe(&self) -> &'a [u8] { self.bytes }
-    }
-
-} // mod no_panic
