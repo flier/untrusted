@@ -113,6 +113,7 @@ pub struct Input<'a> {
 
 impl<'a> Input<'a> {
     /// Construct a new `Input` for the given input `bytes`.
+    #[cfg_attr(feature = "inline_always", inline(always))]
     pub const fn from(bytes: &'a [u8]) -> Self {
         // This limit is important for avoiding integer overflow. In particular,
         // `Reader` assumes that an `i + 1 > i` if `input.value.get(i)` does
@@ -135,6 +136,7 @@ impl<'a> Input<'a> {
     /// Calls `read` with the given input as a `Reader`, ensuring that `read`
     /// consumed the entire input. If `read` does not consume the entire input,
     /// `incomplete_read` is returned.
+    #[cfg_attr(feature = "inline_always", inline(always))]
     pub fn read_all<F, R, E>(&self, incomplete_read: E, read: F) -> Result<R, E>
     where
         F: FnOnce(&mut Reader<'a>) -> Result<R, E>,
@@ -150,12 +152,13 @@ impl<'a> Input<'a> {
 
     /// Access the input as a slice so it can be processed by functions that
     /// are not written using the Input/Reader framework.
-    #[inline]
+    #[cfg_attr(feature = "inline_always", inline(always))]
+    #[cfg_attr(not(feature = "inline_always"), inline)]
     pub fn as_slice_less_safe(&self) -> &'a [u8] { self.value.as_slice_less_safe() }
 }
 
 impl<'a> From<&'a [u8]> for Input<'a> {
-    #[inline]
+    #[cfg_attr(feature = "inline_always", inline(always))]
     fn from(value: &'a [u8]) -> Self { Input::from(value) }
 }
 
@@ -182,6 +185,7 @@ impl PartialEq<Input<'_>> for [u8] {
 /// Calls `read` with the given input as a `Reader`, ensuring that `read`
 /// consumed the entire input. When `input` is `None`, `read` will be
 /// called with `None`.
+#[cfg_attr(feature = "inline_always", inline(always))]
 pub fn read_all_optional<'a, F, R, E>(
     input: Option<Input<'a>>, incomplete_read: E, read: F,
 ) -> Result<R, E>
@@ -227,7 +231,8 @@ pub struct Mark {
 impl<'a> Reader<'a> {
     /// Construct a new Reader for the given input. Use `read_all` or
     /// `read_all_optional` instead of `Reader::new` whenever possible.
-    #[inline]
+    #[cfg_attr(feature = "inline_always", inline(always))]
+    #[cfg_attr(not(feature = "inline_always"), inline)]
     pub fn new(input: Input<'a>) -> Self {
         Self {
             input: input.value,
@@ -242,7 +247,8 @@ impl<'a> Reader<'a> {
 
     /// Returns an `Input` for already-parsed input that has had its boundaries
     /// marked using `mark`.
-    #[inline]
+    #[cfg_attr(feature = "inline_always", inline(always))]
+    #[cfg_attr(not(feature = "inline_always"), inline)]
     pub fn get_input_between_marks(
         &self, mark1: Mark, mark2: Mark,
     ) -> Result<Input<'a>, EndOfInput> {
@@ -271,7 +277,8 @@ impl<'a> Reader<'a> {
     ///
     /// Returns `Ok(b)` where `b` is the next input byte, or `Err(EndOfInput)`
     /// if the `Reader` is at the end of the input.
-    #[inline]
+    #[cfg_attr(feature = "inline_always", inline(always))]
+    #[cfg_attr(not(feature = "inline_always"), inline)]
     pub fn read_byte(&mut self) -> Result<u8, EndOfInput> {
         match self.input.get(self.i) {
             Some(b) => {
@@ -287,7 +294,8 @@ impl<'a> Reader<'a> {
     ///
     /// Returns `Ok(i)` if there are at least `num_bytes` of input remaining,
     /// and `Err(EndOfInput)` otherwise.
-    #[inline]
+    #[cfg_attr(feature = "inline_always", inline(always))]
+    #[cfg_attr(not(feature = "inline_always"), inline)]
     pub fn read_bytes(&mut self, num_bytes: usize) -> Result<Input<'a>, EndOfInput> {
         let new_i = self.i.checked_add(num_bytes).ok_or(EndOfInput)?;
         let ret = self
@@ -301,7 +309,8 @@ impl<'a> Reader<'a> {
 
     /// Skips the reader to the end of the input, returning the skipped input
     /// as an `Input`.
-    #[inline]
+    #[cfg_attr(feature = "inline_always", inline(always))]
+    #[cfg_attr(not(feature = "inline_always"), inline)]
     pub fn read_bytes_to_end(&mut self) -> Input<'a> {
         let to_skip = self.input.len() - self.i;
         self.read_bytes(to_skip).unwrap()
@@ -310,6 +319,7 @@ impl<'a> Reader<'a> {
     /// Calls `read()` with the given input as a `Reader`. On success, returns a
     /// pair `(bytes_read, r)` where `bytes_read` is what `read()` consumed and
     /// `r` is `read()`'s return value.
+    #[cfg_attr(feature = "inline_always", inline(always))]
     pub fn read_partial<F, R, E>(&mut self, read: F) -> Result<(Input<'a>, R), E>
     where
         F: FnOnce(&mut Reader<'a>) -> Result<R, E>,
@@ -326,7 +336,8 @@ impl<'a> Reader<'a> {
     ///
     /// Returns `Ok(i)` if there are at least `num_bytes` of input remaining,
     /// and `Err(EndOfInput)` otherwise.
-    #[inline]
+    #[cfg_attr(feature = "inline_always", inline(always))]
+    #[cfg_attr(not(feature = "inline_always"), inline)]
     pub fn skip(&mut self, num_bytes: usize) -> Result<(), EndOfInput> {
         self.read_bytes(num_bytes).map(|_| ())
     }
@@ -351,13 +362,16 @@ mod no_panic {
     }
 
     impl<'a> Slice<'a> {
-        #[inline]
+        #[cfg_attr(feature = "inline_always", inline(always))]
+        #[cfg_attr(not(feature = "inline_always"), inline)]
         pub const fn new(bytes: &'a [u8]) -> Self { Self { bytes } }
 
-        #[inline]
+        #[cfg_attr(feature = "inline_always", inline(always))]
+        #[cfg_attr(not(feature = "inline_always"), inline)]
         pub fn get(&self, i: usize) -> Option<&u8> { self.bytes.get(i) }
 
-        #[inline]
+        #[cfg_attr(feature = "inline_always", inline(always))]
+        #[cfg_attr(not(feature = "inline_always"), inline)]
         pub fn subslice(&self, r: core::ops::Range<usize>) -> Option<Self> {
             self.bytes.get(r).map(|bytes| Self { bytes })
         }
@@ -368,7 +382,8 @@ mod no_panic {
         #[inline]
         pub fn len(&self) -> usize { self.bytes.len() }
 
-        #[inline]
+        #[cfg_attr(feature = "inline_always", inline(always))]
+        #[cfg_attr(not(feature = "inline_always"), inline)]
         pub fn as_slice_less_safe(&self) -> &'a [u8] { self.bytes }
     }
 
